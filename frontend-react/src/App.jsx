@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import "./App.css";
 
-// Where the Python analytics service runs. Override with VITE_API_URL.
-const API = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+// Where the Java backend runs. Override with VITE_API_URL.
+const API = import.meta.env.VITE_API_URL ?? "http://localhost:8080/api";
 
 const SUGGESTIONS = [
   "Which region performed best and by how much?",
@@ -70,7 +70,7 @@ export default function App() {
     ])
       .then(([summary, regions, products]) => setData({ summary, regions, products }))
       .catch(() =>
-        setDataError(`Can't reach the analytics service at ${API}. Start it with: uvicorn main:app --reload --port 8000`)
+        setDataError(`Can't reach the backend at ${API}. Start the Java service (port 8080) and the Python service (port 8000).`)
       );
   }, []);
 
@@ -93,7 +93,7 @@ export default function App() {
       setResult(null);
       setError(
         e instanceof TypeError
-          ? `Can't reach the analytics service at ${API}.`
+          ? `Can't reach the backend at ${API}.`
           : e.message
       );
     } finally {

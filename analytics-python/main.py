@@ -2,9 +2,9 @@
 Business AI Assistant - Python Analytics Microservice
 
 This service is the "number-crunching" layer of our project. The Spring
-Boot backend (or later, our AI layer) will call these endpoints over
-HTTP to get real analytics on the sales data - things Java/SQL alone
-would be more awkward to compute, but pandas makes trivial.
+Boot backend is the only caller: it owns the sales data (in H2) and
+sends it to us on every request. pandas does the math here because it
+is more awkward to do the same aggregations directly in Java/SQL.
 
 Run locally with:  uvicorn main:app --reload --port 8000
 """
@@ -13,16 +13,17 @@ import os
 import random
 import time
 
+from typing import List
+from pydantic import BaseModel, ConfigDict, Field
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 import pandas as pd
 
 app = FastAPI(title="Biz AI Analytics Service")
 
 # CORS: browsers block a web page from calling an API on a different
-# origin (here: React on :5173 calling FastAPI on :8000) unless the API
-# says it is allowed. Only our own dev frontend is whitelisted.
+# origin. Kept even though the React dashboard now goes through Java
+# (localhost:8080), in case this service is ever called directly again.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -30,18 +31,48 @@ app.add_middleware(
     allow_headers=["Content-Type"],
 )
 
-# In Phase 2 this same data lived in the Java/H2 database. For now we
-# duplicate a copy here as a pandas DataFrame so this service can be
-# developed and tested independently. Later (Phase 4/6) we can have
-# Java call this service and pass real data instead of using this
-# hardcoded copy.
-sales_data = pd.DataFrame([
-    {"region": "Ljubljana", "product": "Widget A", "revenue": 12500.0, "units_sold": 340, "month": "2026-07"},
-    {"region": "Ljubljana", "product": "Widget B", "revenue": 8200.0,  "units_sold": 210, "month": "2026-07"},
-    {"region": "Maribor",   "product": "Widget A", "revenue": 6100.0,  "units_sold": 165, "month": "2026-07"},
-    {"region": "Ljubljana", "product": "Widget A", "revenue": 14300.0, "units_sold": 390, "month": "2026-08"},
-    {"region": "Maribor",   "product": "Widget B", "revenue": 5400.0,  "units_sold": 140, "month": "2026-08"},
-])
+
+class SaleRow(BaseModel):
+    """One sale as sent by the Java backend. Java's JSON uses
+    camelCase (unitsSold); the alias lets us keep snake_case here."""
+    model_config = ConfigDict(populate_by_name=True)
+
+    region: str
+    product: str
+    revenue: float
+    units_sold: int = Field(alias="unitsSold")
+    month: str
+
+
+SALE_COLUMNS = ["region", "product", "revenue", "units_sold", "month"]
+
+
+def to_frame(rows: List[SaleRow]) -> pd.DataFrame:
+    # Passing columns= means an EMPTY list still gives a valid (empty)
+    # table with the right column names, instead of one with no columns.
+    return pd.DataFrame([r.model_dump() for r in rows], columns=SALE_COLUMNS)
+
+
+def compute_summary(df: pd.DataFrame) -> dict:
+    return {
+        "total_revenue": float(df["revenue"].sum()),
+        "total_units_sold": int(df["units_sold"].sum()),
+        # mean() of an empty column is NaN, which is not valid JSON
+        "average_revenue_per_sale": round(float(df["revenue"].mean()), 2) if len(df) else 0.0,
+        "number_of_sales_records": len(df),
+    }
+
+
+def group_totals(df: pd.DataFrame, column: str) -> list:
+    """SQL-style GROUP BY: sum revenue and units per value of `column`.
+    .to_dict(orient="records") turns the table into a list of plain
+    dictionaries, which FastAPI automatically converts to JSON."""
+    return (
+        df.groupby(column)[["revenue", "units_sold"]]
+        .sum()
+        .reset_index()
+        .to_dict(orient="records")
+    )
 
 
 @app.get("/health")
@@ -51,51 +82,23 @@ def health():
     return {"status": "ok", "service": "biz-ai-analytics"}
 
 
-@app.get("/analytics/summary")
-def summary():
-    """
-    Returns high-level KPIs across all sales data:
-    total revenue, total units sold, and average revenue per sale.
-
-    pandas makes this a one-liner instead of writing manual loops -
-    this is the whole point of using Python/pandas for this layer
-    rather than doing it in Java.
-    """
-    return {
-        "total_revenue": float(sales_data["revenue"].sum()),
-        "total_units_sold": int(sales_data["units_sold"].sum()),
-        "average_revenue_per_sale": round(float(sales_data["revenue"].mean()), 2),
-        "number_of_sales_records": len(sales_data),
-    }
+@app.post("/analytics/summary")
+def summary_from_rows(rows: List[SaleRow]):
+    """KPIs (total revenue, total units sold, average revenue per
+    sale) for the rows the caller (Java) supplies."""
+    return compute_summary(to_frame(rows))
 
 
-@app.get("/analytics/by-region")
-def by_region():
-    """
-    Groups the data by region and sums revenue + units sold per region.
-    This is the pandas equivalent of a SQL "GROUP BY region" query.
-    """
-    grouped = (
-        sales_data
-        .groupby("region")[["revenue", "units_sold"]]
-        .sum()
-        .reset_index()
-    )
-    # .to_dict(orient="records") turns the table into a list of plain
-    # dictionaries, which FastAPI automatically converts to JSON.
-    return grouped.to_dict(orient="records")
+@app.post("/analytics/by-region")
+def by_region_from_rows(rows: List[SaleRow]):
+    """Totals per region for the rows the caller (Java) supplies."""
+    return group_totals(to_frame(rows), "region")
 
 
-@app.get("/analytics/by-product")
-def by_product():
-    """Same idea, grouped by product instead of region."""
-    grouped = (
-        sales_data
-        .groupby("product")[["revenue", "units_sold"]]
-        .sum()
-        .reset_index()
-    )
-    return grouped.to_dict(orient="records")
+@app.post("/analytics/by-product")
+def by_product_from_rows(rows: List[SaleRow]):
+    """Totals per product for the rows the caller (Java) supplies."""
+    return group_totals(to_frame(rows), "product")
 
 
 # ---------------------------------------------------------------------
@@ -125,17 +128,20 @@ BASE_DELAY_SECONDS = 1.0  # waits ~1s, ~2s, ~4s between attempts
 
 
 class Question(BaseModel):
-    """The JSON body clients must send to /ai/ask: {"question": "..."}"""
+    """The JSON body for /ai/ask: {"question": "...", "sales": [...]}.
+    Java always supplies `sales` from its own database - there is no
+    hardcoded fallback anymore, so it is required."""
     question: str
+    sales: List[SaleRow]
 
 
-def build_context() -> str:
-    """Turn our analytics into plain text the LLM can read."""
+def build_context(df: pd.DataFrame) -> str:
+    """Turn the analytics for the given rows into plain text the LLM can read."""
     return (
-        f"Summary KPIs: {summary()}\n"
-        f"Totals by region: {by_region()}\n"
-        f"Totals by product: {by_product()}\n"
-        f"Raw sales rows (CSV):\n{sales_data.to_csv(index=False)}"
+        f"Summary KPIs: {compute_summary(df)}\n"
+        f"Totals by region: {group_totals(df, 'region')}\n"
+        f"Totals by product: {group_totals(df, 'product')}\n"
+        f"Raw sales rows (CSV):\n{df.to_csv(index=False)}"
     )
 
 
@@ -145,6 +151,8 @@ def ask(body: Question):
     question = body.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="Question must not be empty.")
+
+    df = to_frame(body.sales)
 
     # Never hardcode API keys in source code - read from the environment.
     api_key = os.getenv("GEMINI_API_KEY")
@@ -171,7 +179,7 @@ def ask(body: Question):
         "EUR 26,800), keep the answer "
         "short (max 5 sentences), and if the data cannot answer the "
         "question, say so instead of guessing.\n\n"
-        f"DATA:\n{build_context()}\n\n"
+        f"DATA:\n{build_context(df)}\n\n"
         f"QUESTION: {question}"
     )
 

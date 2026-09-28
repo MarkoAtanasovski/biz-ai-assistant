@@ -1,0 +1,35 @@
+services:
+  analytics-python:
+    build: ./analytics-python
+    ports:
+      - "8000:8000"
+    environment:
+      # ${VAR} pulls from your .env file (or your shell) at "docker
+      # compose up" time - the key is never written into this file
+      # or baked into the image.
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+
+  backend-java:
+    build: ./backend-java
+    ports:
+      - "8080:8080"
+    environment:
+      # Spring Boot maps this env var to the analytics.base-url property
+      # automatically. Inside Docker's network, containers reach each
+      # other by service name, not localhost - "analytics-python" here
+      # is literally the service name defined above.
+      ANALYTICS_BASE_URL: http://analytics-python:8000
+    depends_on:
+      - analytics-python
+
+  frontend-react:
+    build: ./frontend-react
+    ports:
+      - "5173:80"
+      # host:container - nginx listens on 80 inside the container,
+      # but we map it to 5173 on your machine so the browser reaches
+      # it the same way it always has, and so Java's CORS config
+      # (which only allows localhost:5173) keeps working unchanged.
+    depends_on:
+      - backend-java
