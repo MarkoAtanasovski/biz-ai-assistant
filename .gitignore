@@ -1,0 +1,21 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Node / React
+node_modules/
+dist/
+
+# Java / Maven / IntelliJ
+target/
+.idea/
+*.iml
+
+# Secrets and local config - never commit these
+.env
+*.key
+
+# Misc
+*.log
+.DS_Store
