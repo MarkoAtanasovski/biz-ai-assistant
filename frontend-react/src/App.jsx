@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import "./App.css";
 
 // Where the Java backend runs. Override with VITE_API_URL.
-const API = import.meta.env.VITE_API_URL ?? "http://localhost:8080/api";
+const API = import.meta.env.VITE_API_URL ?? "/api";
 
 const SUGGESTIONS = [
   "Which region performed best and by how much?",

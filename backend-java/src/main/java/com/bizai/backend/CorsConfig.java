@@ -13,7 +13,7 @@ public class CorsConfig implements WebMvcConfigurer {
         // Mirrors Python's CORSMiddleware: only our own dev frontend
         // is allowed to call the API from a browser.
         registry.addMapping("/api/**")
-                .allowedOrigins("http://localhost:5173", "http://127.0.0.1:5173")
+                .allowedOrigins("http://localhost:5173", "http://127.0.0.1:5173", "http://192.168.1.248:5173")
                 .allowedMethods("GET", "POST");
     }
 }
