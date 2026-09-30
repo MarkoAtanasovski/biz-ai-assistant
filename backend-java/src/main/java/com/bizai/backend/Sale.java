@@ -24,14 +24,18 @@ public class Sale {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(nullable = false)
     private String region;      // e.g. "Ljubljana", "Maribor"
+    @Column(nullable = false)
     private String product;     // e.g. "Widget A"
+    @Column(nullable = false)
     private Double revenue;     // e.g. 1250.50
+    @Column(nullable = false)
     private Integer unitsSold;  // e.g. 42
     // "month" is a reserved SQL keyword in H2 (it's a built-in date
     // function). @Column lets us keep the Java field named "month" while
     // storing it under a different, safe column name in the database.
-    @Column(name = "sale_month")
+    @Column(name = "sale_month", nullable = false)
     private String month;       // e.g. "2026-08"
 
     // JPA requires a no-argument constructor - it uses this internally

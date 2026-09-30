@@ -8,12 +8,14 @@ WORKDIR /build
 COPY pom.xml .
 RUN mvn dependency:go-offline
 COPY src ./src
+# Tests run in CI (and with `mvn test`), not on every image build.
 RUN mvn package -DskipTests
 
-# Stage 2: the actual runtime image. Just a JRE (no compiler, no
-# Maven) plus the one jar file - much smaller than stage 1.
+# Stage 2: the actual runtime image. Just a JRE plus the one jar file.
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
+RUN addgroup -S app && adduser -S app -G app
 COPY --from=build /build/target/*.jar app.jar
+USER app
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]

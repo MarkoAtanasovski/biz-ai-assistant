@@ -19,3 +19,7 @@ target/
 # Misc
 *.log
 .DS_Store
+
+# Tests / tooling
+.pytest_cache/
+.vscode/

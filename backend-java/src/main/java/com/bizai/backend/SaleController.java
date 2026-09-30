@@ -1,22 +1,27 @@
 package com.bizai.backend;
 
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.List;
 
 @RestController
 public class SaleController {
 
-    // Spring automatically "injects" a working SaleRepository here for us
-    // (this is what @ComponentScan/dependency injection, mentioned back
-    // in BackendApplication.java, actually does in practice).
     private final SaleRepository saleRepository;
+    private final SaleImportService importService;
 
-    public SaleController(SaleRepository saleRepository) {
+    public SaleController(SaleRepository saleRepository, SaleImportService importService) {
         this.saleRepository = saleRepository;
+        this.importService = importService;
     }
 
     // GET /api/sales -> returns every row in the sale table as JSON
@@ -26,13 +31,35 @@ public class SaleController {
     }
 
     /**
-     * This inner class runs once automatically when the app starts up.
-     * CommandLineRunner is Spring's way of saying "run this code right
-     * after the application context is ready." We use it here just to
-     * seed some sample data into our in-memory H2 database, since H2
-     * starts empty every time the app restarts.
+     * POST /api/sales/upload  (multipart: file=<csv>, mode=replace|append)
+     * The file is fully parsed and validated first; the database is only
+     * touched if every row is valid.
+     */
+    @PostMapping("/api/sales/upload")
+    public SaleImportService.ImportResult upload(@RequestParam("file") MultipartFile file,
+                                                 @RequestParam(name = "mode", defaultValue = "replace") String mode) {
+        if (!mode.equals("replace") && !mode.equals("append")) {
+            throw new CsvImportException("mode must be 'replace' or 'append'.");
+        }
+        if (file.isEmpty()) {
+            throw new CsvImportException("No file was uploaded.");
+        }
+        List<Sale> sales;
+        try (InputStream in = file.getInputStream()) {
+            sales = SaleCsvParser.parse(in);
+        } catch (IOException e) {
+            throw new CsvImportException("Could not read the file: " + e.getMessage());
+        }
+        return importService.save(sales, mode.equals("replace"));
+    }
+
+    /**
+     * Seeds demo data on first start only. With PostgreSQL the data now
+     * survives restarts, so we must not add the same rows again each time.
+     * Turn off with app.seed-demo-data=false.
      */
     @Component
+    @ConditionalOnProperty(name = "app.seed-demo-data", havingValue = "true", matchIfMissing = true)
     static class DataSeeder implements CommandLineRunner {
         private final SaleRepository saleRepository;
 
@@ -42,6 +69,9 @@ public class SaleController {
 
         @Override
         public void run(String... args) {
+            if (saleRepository.count() > 0) {
+                return;
+            }
             saleRepository.save(new Sale("Ljubljana", "Widget A", 12500.0, 340, "2026-07"));
             saleRepository.save(new Sale("Ljubljana", "Widget B", 8200.0, 210, "2026-07"));
             saleRepository.save(new Sale("Maribor", "Widget A", 6100.0, 165, "2026-07"));

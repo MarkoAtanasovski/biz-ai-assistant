@@ -1,4 +1,4 @@
-fastapi
-uvicorn
-pandas
-google-genai
+fastapi==0.142.0
+uvicorn==0.54.0
+pandas==3.0.2
+google-genai==2.25.0

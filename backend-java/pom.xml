@@ -53,9 +53,22 @@
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
 
-        <!-- H2: a lightweight database that runs entirely in memory (no
-             separate install/server needed). Perfect for learning and local
-             development - data resets each time the app restarts. -->
+        <!-- PostgreSQL: the real database (docker-compose starts one). -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Reads uploaded CSV files (quotes, delimiters, line breaks). -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-csv</artifactId>
+            <version>1.11.0</version>
+        </dependency>
+
+        <!-- H2: in-memory database for tests and for running without
+             PostgreSQL (start with the "h2" profile). Data resets on restart. -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
